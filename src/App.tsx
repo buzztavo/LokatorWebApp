@@ -9,8 +9,9 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { POI, POI_CATEGORIES } from './types';
-import { fetchPOIs, createPOI, deletePOI } from './lib/supabase';
+import { fetchPOIs, createPOI, deletePOI, updatePOI } from './lib/supabase';
 import { AddPoiModal } from './components/AddPoiModal';
+import { EditPoiModal } from './components/EditPoiModal';
 import { SupabaseConfigModal } from './components/SupabaseConfigModal';
 
 const DEFAULT_CENTER: [number, number] = [-77.0369, 38.9072]; // [lng, lat]
@@ -40,6 +41,8 @@ export default function App() {
   // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingPoi, setEditingPoi] = useState<POI | null>(null);
 
   // Load POIs
   const loadPOIs = useCallback(async () => {
@@ -229,17 +232,38 @@ export default function App() {
           <span class="text-[10px] text-slate-400">
             ${poi.created_at ? new Date(poi.created_at).toLocaleDateString() : ''}
           </span>
-          <button
-            id="delete-poi-${poi.id}"
-            class="text-xs text-red-600 hover:text-red-700 font-medium flex items-center gap-1 hover:bg-red-50 px-2 py-1 rounded-lg transition-colors cursor-pointer"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
-            </svg>
-            Delete
-          </button>
+          <div class="flex items-center gap-1">
+            <button
+              id="edit-poi-${poi.id}"
+              class="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1 hover:bg-blue-50 px-2 py-1 rounded-lg transition-colors cursor-pointer"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+              </svg>
+              Edit
+            </button>
+            <button
+              id="delete-poi-${poi.id}"
+              class="text-xs text-red-600 hover:text-red-700 font-medium flex items-center gap-1 hover:bg-red-50 px-2 py-1 rounded-lg transition-colors cursor-pointer"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
+              </svg>
+              Delete
+            </button>
+          </div>
         </div>
       `;
+
+      // Attach edit click handler
+      const editBtn = popupNode.querySelector(`#edit-poi-${poi.id}`);
+      if (editBtn) {
+        editBtn.addEventListener('click', () => {
+          setEditingPoi(poi);
+          setIsEditModalOpen(true);
+        });
+      }
 
       // Attach delete click handler
       const deleteBtn = popupNode.querySelector(`#delete-poi-${poi.id}`);
@@ -285,6 +309,18 @@ export default function App() {
         zoom: Math.max(currentZoom, 13),
         essential: true,
       });
+    }
+  };
+
+  // Handle POI update
+  const handleUpdatePoi = async (id: string, updatedPoiData: Partial<Omit<POI, 'id' | 'created_at'>>) => {
+    const res = await updatePOI(id, updatedPoiData);
+    if (res.success && res.poi) {
+      setPois((prev) => prev.map((p) => (p.id === id ? res.poi! : p)));
+      setDataSource(res.source);
+    }
+    if (res.error) {
+      setErrorMessage(res.error);
     }
   };
 
@@ -489,6 +525,19 @@ export default function App() {
         onSave={handleSavePoi}
         currentCenter={currentCenter}
       />
+
+      {/* Edit POI Dedicated Modal */}
+      {editingPoi && (
+        <EditPoiModal
+          isOpen={isEditModalOpen}
+          onClose={() => {
+            setIsEditModalOpen(false);
+            setEditingPoi(null);
+          }}
+          onUpdate={handleUpdatePoi}
+          poi={editingPoi}
+        />
+      )}
 
       {/* Supabase Configuration & Status Modal */}
       <SupabaseConfigModal

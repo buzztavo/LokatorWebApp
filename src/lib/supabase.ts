@@ -290,3 +290,81 @@ export async function deletePOI(id: string): Promise<{ success: boolean; error?:
     return { success: false, error: err.message };
   }
 }
+
+
+/**
+ * Update an existing POI in table `poi`
+ */
+export async function updatePOI(
+  id: string,
+  poiData: Partial<Omit<POI, 'id' | 'created_at'>>
+): Promise<{ poi?: POI; success: boolean; source: 'supabase' | 'local'; error?: string }> {
+  const client = getSupabaseClient();
+  const currentLocal = getLocalPOIs();
+  const index = currentLocal.findIndex(p => p.id === id);
+
+  if (!client || id.startsWith('local-') || id.startsWith('sample-')) {
+    if (index === -1) {
+       return { success: false, source: 'local', error: 'POI not found in local cache' };
+    }
+    const updatedPoi = { ...currentLocal[index], ...poiData } as POI;
+    currentLocal[index] = updatedPoi;
+    saveLocalPOIs(currentLocal);
+    return { poi: updatedPoi, success: true, source: 'local' };
+  }
+
+  try {
+    const payload: any = {};
+    if (poiData.name !== undefined) payload.name = poiData.name;
+    if (poiData.description !== undefined) payload.description = poiData.description || null;
+    if (poiData.category !== undefined) payload.category = poiData.category || 'General';
+    if (poiData.latitude !== undefined) payload.latitude = poiData.latitude;
+    if (poiData.longitude !== undefined) payload.longitude = poiData.longitude;
+    if (poiData.elevation !== undefined) payload.elevation = poiData.elevation !== null && poiData.elevation !== undefined ? poiData.elevation : null;
+
+    const { data, error } = await client
+      .from('poi')
+      .update(payload)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const updated: POI = {
+      id: String(data.id),
+      name: data.name,
+      description: data.description ?? null,
+      category: data.category || 'General',
+      latitude: Number(data.latitude),
+      longitude: Number(data.longitude),
+      elevation: data.elevation !== null && data.elevation !== undefined ? Number(data.elevation) : null,
+      created_at: data.created_at,
+    };
+
+    if (index !== -1) {
+      currentLocal[index] = updated;
+      saveLocalPOIs(currentLocal);
+    } else {
+       saveLocalPOIs([updated, ...currentLocal]);
+    }
+
+    return { poi: updated, success: true, source: 'supabase' };
+  } catch (err: any) {
+    console.error('Error updating in Supabase:', err);
+    // update local cache anyway if exists
+    if (index !== -1) {
+      const updatedPoi = { ...currentLocal[index], ...poiData } as POI;
+      currentLocal[index] = updatedPoi;
+      saveLocalPOIs(currentLocal);
+      return { poi: updatedPoi, success: true, source: 'local', error: `Could not write to Supabase (${err.message}). Saved to local session cache.` };
+    }
+    return {
+      success: false,
+      source: 'local',
+      error: `Could not write to Supabase (${err.message}). POI not found in local cache.`,
+    };
+  }
+}
